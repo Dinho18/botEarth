@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Busca de Loja</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f4f4f9;
+        }
+
+        .container {
+            text-align: center;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        input[type="text"],
+        input[type="number"] {
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%;
+            margin-bottom: 10px;
+            margin-left: -12px; /* Move dois pixels para a esquerda */
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #218838;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Buscar Loja</h1>
+        <form id="searchForm">
+            <input type="text" id="query" placeholder="Digite algo..." required>
+            <input type="number" id="resultCount" placeholder="Número de resultados" min="1" required>
+            <br><br>
+            <button type="submit">Confirmar</button>
+        </form>
+        <p id="resultado"></p>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        const form = document.getElementById('searchForm');
+        const queryInput = document.getElementById('query');
+        const resultCountInput = document.getElementById('resultCount');
+        const resultado = document.getElementById('resultado');
+        let lastStart = 1; // Ponto inicial da pesquisa
+        let headersAdded = false; // Para garantir que o cabeçalho seja adicionado apenas uma vez
+
+        // Função para buscar o conteúdo XML de uma URL
+        async function getXMLContent(url) {
+            try {
+                const response = await axios.get(url);
+                return response.data;
+            } catch (error) {
+                console.error("Erro ao buscar o XML:", error);
+                resultado.textContent = "Erro ao buscar o XML. Verifique a URL.";
+            }
+        }
+
+        // Função para converter os dados XML para CSV
+        function convertToCSV(data) {
+            const csvRows = [];
+            if (!headersAdded) {
+                // Só adiciona o header na primeira vez
+                const headers = ["Address Line", "Phone Number", "Rating","Review Count", "Title", "CEP", "Extended Address", "URL"]; 
+                csvRows.push(headers.join(";"));
+                headersAdded = true; // Marca que o header foi adicionado
+            }
+
+            const places = data.querySelectorAll("place_card");
+
+            places.forEach((place) => {
+                const adress_lines = place.querySelectorAll("address_line");
+                const addressLine = place.querySelector("address_line")?.textContent || "";
+                const phoneNumber = place.querySelector("phone_number")?.textContent || "";
+                const rating = place.querySelector("rating")?.getAttribute("num_rating_stars") || "";
+                const review_count = place.querySelector("review_count > anchor_text")?.textContent || "";
+                const title = place.querySelector("title")?.textContent || "";
+                const cep = adress_lines[adress_lines.length - 1]?.textContent || "";
+                const extended_adress = place.querySelector("name_and_address")?.textContent || place.querySelector("single_line_address")?.textContent || "";
+                const url = place.querySelector("authority_page_link > url")?.textContent.replace("/url?q=", "") || "";
+
+                const row = [addressLine, phoneNumber, rating, review_count, title, cep, extended_adress, url].join(";");
+                csvRows.push(row);
+            });
+
+            return csvRows.join("\n");
+        }
+
+        // Função para iniciar o download do CSV
+        function downloadCSV(csvContent) {
+            const blob = new Blob([csvContent], { type: "text/csv" });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "lojas.csv"; // Nome do arquivo CSV
+            document.body.appendChild(link);
+            console.log(csvContent);
+            link.click(); // Simular clique no link para baixar o arquivo
+
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            resultado.textContent = "Download do CSV iniciado.";
+        }
+
+        // Função principal para buscar múltiplos resultados
+        async function main(searchQuery, totalResults) {
+            let csvContent = "";
+            let currentResults = 0;
+            const resultsPerPage = 10; // Número hipotético de resultados por página (depende da API)
+            const baseUrl = "https://www.google.com/earth/rpc/search";
+
+            while (currentResults < totalResults) {
+                const url = `${baseUrl}?q=${encodeURIComponent(searchQuery)}&start=${lastStart}&ie=utf-8&hl=pt-BR&gl=br`;
+
+                const xmlContent = await getXMLContent(url);
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlContent, "text/xml");
+
+                // Converter os resultados desta página para CSV
+                const pageCSV = convertToCSV(xmlDoc);
+
+                if (pageCSV) {
+                    csvContent += pageCSV + "\n";
+                    currentResults += resultsPerPage;
+                    lastStart += resultsPerPage; // Atualizar o início para a próxima pesquisa
+                } else {
+                    break; // Se não houver mais resultados, sair do laço
+                }
+            }
+
+            downloadCSV(csvContent); // Iniciar o download do CSV com todos os resultados
+        }
+
+        // Adicionar evento de submissão ao formulário
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const searchQuery = queryInput.value;
+            const resultCount = parseInt(resultCountInput.value, 10);
+
+            if (searchQuery && resultCount > 0) {
+                main(searchQuery, resultCount);
+            } else {
+                resultado.textContent = "Por favor, insira uma busca e um número válido.";
+            }
+        });
+    </script>
+</body>
+
+</html>
